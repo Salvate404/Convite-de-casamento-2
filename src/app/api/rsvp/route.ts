@@ -37,23 +37,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const children: RsvpChild[] = Array.isArray(body.children)
-      ? body.children
-          .map((child) => {
-            const custom = Boolean(child?.custom);
-            const childId = cleanName(child?.guestId);
-            const listed = childId ? findChildGuest(childId) : undefined;
-            const name = listed?.name || cleanName(child?.name);
-            if (!name) return null;
-            if (!custom && !listed) return "invalid" as const;
-            return {
-              name,
-              guestId: listed?.id,
-              custom: custom && !listed,
-            };
-          })
-          .filter((child): child is RsvpChild => Boolean(child) && child !== "invalid")
-      : [];
+    const children: RsvpChild[] = [];
+    if (Array.isArray(body.children)) {
+      for (const child of body.children) {
+        const custom = Boolean(child?.custom);
+        const childId = cleanName(child?.guestId);
+        const listed = childId ? findChildGuest(childId) : undefined;
+        const name = listed?.name || cleanName(child?.name);
+        if (!name) continue;
+        if (!custom && !listed) continue;
+        children.push({
+          name,
+          guestId: listed?.id,
+          custom: custom && !listed,
+        });
+      }
+    }
 
     if (
       Array.isArray(body.children) &&
