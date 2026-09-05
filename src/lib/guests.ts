@@ -57,6 +57,14 @@ export const adultGuests: Guest[] = [
 
 export const childGuests: Guest[] = toGuests("criancas", guestData.criancas);
 
+export function findAdultGuest(id: string) {
+  return adultGuests.find((guest) => guest.id === id);
+}
+
+export function findChildGuest(id: string) {
+  return childGuests.find((guest) => guest.id === id);
+}
+
 export function normalize(value: string) {
   return value
     .normalize("NFD")

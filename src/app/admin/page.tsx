@@ -2,6 +2,9 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import type { RsvpRecord } from "@/lib/rsvp-types";
+import { adultGuests, GROUP_LABELS, type GuestGroup } from "@/lib/guests";
+
+type Filter = "yes" | "no" | "responded" | "pending";
 
 export default function AdminPage() {
   const [password, setPassword] = useState("");
@@ -9,13 +12,34 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState<Filter>("responded");
+
+  const respondedIds = useMemo(
+    () => new Set(rsvps.map((rsvp) => rsvp.guestId).filter(Boolean)),
+    [rsvps],
+  );
+
+  const pending = useMemo(
+    () => adultGuests.filter((guest) => !respondedIds.has(guest.id)),
+    [respondedIds],
+  );
 
   const totals = useMemo(() => {
-    const yes = rsvps.filter((r) => r.attending === "yes");
-    const no = rsvps.filter((r) => r.attending === "no");
-    const heads = yes.reduce((sum, r) => sum + r.guests.length, 0);
-    return { responses: rsvps.length, yes: yes.length, no: no.length, heads };
-  }, [rsvps]);
+    const yes = rsvps.filter((r) => r.attending === "yes").length;
+    const no = rsvps.filter((r) => r.attending === "no").length;
+    return {
+      yes,
+      no,
+      responded: rsvps.length,
+      pending: pending.length,
+    };
+  }, [pending.length, rsvps]);
+
+  const visibleRsvps = useMemo(() => {
+    if (filter === "yes") return rsvps.filter((r) => r.attending === "yes");
+    if (filter === "no") return rsvps.filter((r) => r.attending === "no");
+    return rsvps;
+  }, [filter, rsvps]);
 
   async function load(event?: FormEvent) {
     event?.preventDefault();
@@ -44,11 +68,11 @@ export default function AdminPage() {
   }
 
   function exportCsv() {
-    const header = ["Data", "Contato", "Telefone", "Status", "Convidados", "Mensagem"];
+    const header = ["Data", "Nome", "Grupo", "Status", "Convidados", "Mensagem"];
     const rows = rsvps.map((r) => [
       new Date(r.createdAt).toLocaleString("pt-BR"),
       r.contactName,
-      r.phone || "",
+      r.group && r.group in GROUP_LABELS ? GROUP_LABELS[r.group as GuestGroup] : "",
       r.attending === "yes" ? "Sim" : "Não",
       r.guests.join(" | "),
       (r.message || "").replace(/\n/g, " "),
@@ -73,7 +97,7 @@ export default function AdminPage() {
     <main className="admin">
       <div className="admin-inner">
         <h1>Confirmações</h1>
-        <p>Anne & Vinicius — painel simples de RSVP</p>
+        <p>Anne & Vinicius — confirmações salvas no banco</p>
 
         {!loaded ? (
           <form className="admin-login" onSubmit={load}>
@@ -94,22 +118,38 @@ export default function AdminPage() {
         ) : (
           <>
             <div className="admin-stats">
-              <div>
-                <strong>{totals.responses}</strong>
-                <span>respostas</span>
-              </div>
-              <div>
+              <button
+                type="button"
+                className={filter === "yes" ? "is-active" : undefined}
+                onClick={() => setFilter("yes")}
+              >
                 <strong>{totals.yes}</strong>
                 <span>confirmados</span>
-              </div>
-              <div>
-                <strong>{totals.heads}</strong>
-                <span>pessoas</span>
-              </div>
-              <div>
+              </button>
+              <button
+                type="button"
+                className={filter === "no" ? "is-active" : undefined}
+                onClick={() => setFilter("no")}
+              >
                 <strong>{totals.no}</strong>
                 <span>não vão</span>
-              </div>
+              </button>
+              <button
+                type="button"
+                className={filter === "responded" ? "is-active" : undefined}
+                onClick={() => setFilter("responded")}
+              >
+                <strong>{totals.responded}</strong>
+                <span>total respondido</span>
+              </button>
+              <button
+                type="button"
+                className={filter === "pending" ? "is-active" : undefined}
+                onClick={() => setFilter("pending")}
+              >
+                <strong>{totals.pending}</strong>
+                <span>total que falta</span>
+              </button>
             </div>
 
             <div className="admin-actions">
@@ -121,30 +161,51 @@ export default function AdminPage() {
               </button>
             </div>
 
+            {error && <p className="form-error">{error}</p>}
+
             <div className="admin-list">
-              {rsvps.length === 0 && <p>Nenhuma confirmação ainda.</p>}
-              {rsvps.map((rsvp) => (
-                <article key={rsvp.id} className="admin-item">
-                  <header>
-                    <h2>{rsvp.contactName}</h2>
-                    <span className={rsvp.attending === "yes" ? "yes" : "no"}>
-                      {rsvp.attending === "yes" ? "Vai" : "Não vai"}
-                    </span>
-                  </header>
-                  <p className="meta">
-                    {new Date(rsvp.createdAt).toLocaleString("pt-BR")}
-                    {rsvp.phone ? ` · ${rsvp.phone}` : ""}
-                  </p>
-                  {rsvp.guests.length > 0 && (
-                    <ul>
-                      {rsvp.guests.map((guest) => (
-                        <li key={guest}>{guest}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {rsvp.message && <p className="msg">“{rsvp.message}”</p>}
-                </article>
-              ))}
+              {filter === "pending" ? (
+                pending.length === 0 ? (
+                  <p>Todo mundo da lista já respondeu.</p>
+                ) : (
+                  pending.map((guest) => (
+                    <article key={guest.id} className="admin-item">
+                      <header>
+                        <h2>{guest.name}</h2>
+                        <span className="pending">Pendente</span>
+                      </header>
+                      <p className="meta">{guest.groupLabel}</p>
+                    </article>
+                  ))
+                )
+              ) : visibleRsvps.length === 0 ? (
+                <p>Nenhuma confirmação neste filtro.</p>
+              ) : (
+                visibleRsvps.map((rsvp) => (
+                  <article key={rsvp.id} className="admin-item">
+                    <header>
+                      <h2>{rsvp.contactName}</h2>
+                      <span className={rsvp.attending === "yes" ? "yes" : "no"}>
+                        {rsvp.attending === "yes" ? "Vai" : "Não vai"}
+                      </span>
+                    </header>
+                    <p className="meta">
+                      {new Date(rsvp.createdAt).toLocaleString("pt-BR")}
+                      {rsvp.group && rsvp.group in GROUP_LABELS
+                        ? ` · ${GROUP_LABELS[rsvp.group as GuestGroup]}`
+                        : ""}
+                    </p>
+                    {rsvp.guests.length > 0 && (
+                      <ul>
+                        {rsvp.guests.map((guest) => (
+                          <li key={guest}>{guest}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {rsvp.message && <p className="msg">“{rsvp.message}”</p>}
+                  </article>
+                ))
+              )}
             </div>
           </>
         )}

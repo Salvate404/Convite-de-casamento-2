@@ -708,6 +708,7 @@ textarea {
 }
 
 .field span,
+.field > label,
 .field legend,
 .guests-head span {
   font-size: 0.84rem;
@@ -912,6 +913,11 @@ textarea {
   margin-top: -0.55rem;
 }
 
+.name-suggest.is-selected input {
+  border-color: rgba(176, 138, 79, 0.7);
+  background: rgba(176, 138, 79, 0.06);
+}
+
 .guest-row .grow {
   flex: 1;
 }
@@ -974,11 +980,25 @@ textarea {
   margin-bottom: 1.25rem;
 }
 
-.admin-stats div {
+.admin-stats button {
+  border: 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
+  background: transparent;
   padding: 0.9rem 0.4rem;
   text-align: center;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.admin-stats button:hover,
+.admin-stats button.is-active {
+  background: rgba(176, 138, 79, 0.08);
+  border-color: var(--gold);
 }
 
 .admin-stats strong {
@@ -989,8 +1009,9 @@ textarea {
 }
 
 .admin-stats span {
+  display: block;
   color: var(--soft);
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -1026,7 +1047,8 @@ textarea {
 }
 
 .admin-item .yes,
-.admin-item .no {
+.admin-item .no,
+.admin-item .pending {
   font-size: 0.78rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1038,6 +1060,19 @@ textarea {
 
 .admin-item .no {
   color: var(--soft);
+}
+
+.admin-item .pending {
+  color: var(--gold);
+}
+
+.rsvp-existing {
+  margin: -0.35rem 0 0;
+  padding: 0.7rem 0.9rem;
+  background: rgba(176, 138, 79, 0.1);
+  color: var(--gold-deep);
+  font-size: 0.9rem;
+  line-height: 1.45;
 }
 
 .admin-item .meta {

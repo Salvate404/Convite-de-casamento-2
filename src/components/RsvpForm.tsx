@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ScrollReveal } from "./ScrollReveal";
 import { NameSuggest } from "./NameSuggest";
 import { adultGuests, childGuests, GROUP_LABELS, type Guest, type GuestGroup } from "@/lib/guests";
+import type { RsvpRecord } from "@/lib/rsvp-types";
 
 type Status = "idle" | "loading" | "success" | "error";
 
@@ -16,6 +17,15 @@ type ChildEntry = {
 
 const emptyChild = (): ChildEntry => ({ name: "" });
 
+function childrenFromRecord(record: RsvpRecord): ChildEntry[] {
+  const listed = (record.children ?? []).map((child) => ({
+    name: child.name,
+    guestId: child.guestId,
+    custom: child.custom,
+  }));
+  return listed.length ? [...listed, emptyChild()] : [emptyChild()];
+}
+
 export function RsvpForm() {
   const [contactName, setContactName] = useState("");
   const [guestId, setGuestId] = useState("");
@@ -25,25 +35,47 @@ export function RsvpForm() {
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState("");
+  const [existing, setExisting] = useState(false);
+  const [updated, setUpdated] = useState(false);
 
   const selectedChildIds = useMemo(
     () => children.map((child) => child.guestId).filter((id): id is string => Boolean(id)),
     [children],
   );
 
-  function selectAdult(guest: Guest) {
+  async function selectAdult(guest: Guest) {
     setContactName(guest.name);
     setGuestId(guest.id);
     setGroup(guest.group);
+    setError("");
+
+    try {
+      const response = await fetch(`/api/rsvp?guestId=${encodeURIComponent(guest.id)}`);
+      const data = (await response.json()) as { rsvp?: RsvpRecord | null };
+      if (data.rsvp) {
+        setExisting(true);
+        setAttending(data.rsvp.attending);
+        setMessage(data.rsvp.message || "");
+        setChildren(childrenFromRecord(data.rsvp));
+        return;
+      }
+    } catch {
+      // segue como nova confirmação
+    }
+
+    setExisting(false);
+    setAttending("");
+    setMessage("");
+    setChildren([emptyChild()]);
   }
 
   function updateChild(index: number, next: ChildEntry, appendEmpty = false) {
     setChildren((prev) => {
-      const updated = prev.map((child, i) => (i === index ? next : child));
-      if (appendEmpty && updated.every((child) => child.name.trim())) {
-        return [...updated, emptyChild()];
+      const updatedRows = prev.map((child, i) => (i === index ? next : child));
+      if (appendEmpty && updatedRows.every((child) => child.name.trim())) {
+        return [...updatedRows, emptyChild()];
       }
-      return updated;
+      return updatedRows;
     });
   }
 
@@ -58,8 +90,21 @@ export function RsvpForm() {
     event.preventDefault();
     setError("");
 
+    if (!guestId) {
+      setError("Clique no seu nome na lista para confirmar.");
+      return;
+    }
+
     if (!attending) {
       setError("Selecione se poderá comparecer.");
+      return;
+    }
+
+    const unfinishedChild = children.find(
+      (child) => child.name.trim() && !child.guestId && !child.custom,
+    );
+    if (unfinishedChild) {
+      setError("Clique no nome da criança na lista, ou em + adicionar criança.");
       return;
     }
 
@@ -87,7 +132,7 @@ export function RsvpForm() {
         }),
       });
 
-      const data = (await response.json()) as { error?: string };
+      const data = (await response.json()) as { error?: string; updated?: boolean };
 
       if (!response.ok) {
         setStatus("error");
@@ -95,6 +140,7 @@ export function RsvpForm() {
         return;
       }
 
+      setUpdated(Boolean(data.updated));
       setStatus("success");
       setContactName("");
       setGuestId("");
@@ -102,6 +148,7 @@ export function RsvpForm() {
       setAttending("");
       setChildren([emptyChild()]);
       setMessage("");
+      setExisting(false);
     } catch {
       setStatus("error");
       setError("Falha de conexão. Tente novamente.");
@@ -119,8 +166,9 @@ export function RsvpForm() {
         <p className="section-label">RSVP</p>
         <h2 className="section-title">Confirme sua presença</h2>
         <p className="section-text">
-          Digite seu nome — se houver mais de uma pessoa com o mesmo nome, escolha a
-          família ou o grupo certo. Crianças vão em um campo à parte.
+          Digite e clique no seu nome da lista — só assim a confirmação vale.
+          Se houver nomes iguais, escolha o grupo certo. Crianças vão em um
+          campo à parte.
         </p>
       </ScrollReveal>
 
@@ -134,8 +182,12 @@ export function RsvpForm() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
             >
-              <h3>Obrigado!</h3>
-              <p>Sua confirmação foi recebida. Mal podemos esperar para celebrar com você.</p>
+              <h3>{updated ? "Resposta atualizada" : "Obrigado!"}</h3>
+              <p>
+                {updated
+                  ? "Sua confirmação anterior foi substituída pela nova resposta."
+                  : "Sua confirmação foi recebida. Mal podemos esperar para celebrar com você."}
+              </p>
               <button
                 type="button"
                 className="btn-ghost"
@@ -158,17 +210,24 @@ export function RsvpForm() {
                 value={contactName}
                 guests={adultGuests}
                 required
-                placeholder="Comece a digitar seu nome"
+                selected={Boolean(guestId)}
+                placeholder="Comece a digitar e clique no seu nome"
                 onChange={(value) => {
                   setContactName(value);
                   setGuestId("");
                   setGroup("");
+                  setExisting(false);
                 }}
                 onSelect={selectAdult}
               />
               {group && (
                 <p className="name-suggest-picked">
                   {contactName} · {GROUP_LABELS[group]}
+                </p>
+              )}
+              {existing && (
+                <p className="rsvp-existing">
+                  Você já confirmou. Altere a resposta abaixo e envie de novo.
                 </p>
               )}
 
@@ -212,8 +271,9 @@ export function RsvpForm() {
                         label={index === 0 ? "Nome da criança" : `Criança ${index + 1}`}
                         value={child.name}
                         guests={childGuests}
+                        selected={Boolean(child.guestId || child.custom)}
                         excludeIds={selectedChildIds.filter((id) => id !== child.guestId)}
-                        placeholder="Comece a digitar o nome"
+                        placeholder="Digite e clique no nome da lista"
                         customActionLabel="+ Adicionar criança"
                         onChange={(value) =>
                           updateChild(index, { name: value, guestId: undefined, custom: false })
@@ -265,7 +325,13 @@ export function RsvpForm() {
                 className="btn-primary"
                 disabled={status === "loading"}
               >
-                {status === "loading" ? "Enviando..." : "Enviar confirmação"}
+                {status === "loading"
+                  ? existing
+                    ? "Atualizando..."
+                    : "Enviando..."
+                  : existing
+                    ? "Atualizar resposta"
+                    : "Enviar confirmação"}
               </button>
             </motion.form>
           )}

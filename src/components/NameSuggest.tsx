@@ -12,6 +12,7 @@ type Props = {
   guests: Guest[];
   placeholder?: string;
   required?: boolean;
+  selected?: boolean;
   excludeIds?: string[];
   customActionLabel?: string;
   onCustomAction?: (typedName: string) => void;
@@ -25,13 +26,15 @@ export function NameSuggest({
   guests,
   placeholder,
   required,
+  selected = false,
   excludeIds = [],
   customActionLabel,
   onCustomAction,
 }: Props) {
   const inputId = useId();
   const listId = useId();
-  const rootRef = useRef<HTMLLabelElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const skipFocusOpen = useRef(false);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
 
@@ -45,9 +48,9 @@ export function NameSuggest({
     [available, value],
   );
 
-  const showCustom = Boolean(customActionLabel && onCustomAction && value.trim());
+  const showCustom = Boolean(customActionLabel && onCustomAction && value.trim() && !selected);
   const itemCount = matches.length + (showCustom ? 1 : 0);
-  const visible = open && itemCount > 0;
+  const visible = open && !selected && itemCount > 0;
 
   useEffect(() => {
     setActive(0);
@@ -65,18 +68,20 @@ export function NameSuggest({
   }, []);
 
   function chooseGuest(guest: Guest) {
+    skipFocusOpen.current = true;
     onSelect(guest);
     setOpen(false);
   }
 
   function chooseCustom() {
+    skipFocusOpen.current = true;
     onCustomAction?.(value.trim());
     setOpen(false);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (!visible) {
-      if (event.key === "ArrowDown" && itemCount > 0) setOpen(true);
+      if (event.key === "ArrowDown" && itemCount > 0 && !selected) setOpen(true);
       return;
     }
 
@@ -100,8 +105,8 @@ export function NameSuggest({
   }
 
   return (
-    <label className="field name-suggest" ref={rootRef}>
-      <span>{label}</span>
+    <div className={`field name-suggest${selected ? " is-selected" : ""}`} ref={rootRef}>
+      <label htmlFor={inputId}>{label}</label>
       <input
         id={inputId}
         role="combobox"
@@ -116,7 +121,13 @@ export function NameSuggest({
           onChange(event.target.value);
           setOpen(true);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => {
+          if (skipFocusOpen.current) {
+            skipFocusOpen.current = false;
+            return;
+          }
+          if (!selected) setOpen(true);
+        }}
         onKeyDown={onKeyDown}
       />
 
@@ -128,6 +139,7 @@ export function NameSuggest({
                 type="button"
                 className={active === index ? "is-active" : undefined}
                 onMouseEnter={() => setActive(index)}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => chooseGuest(guest)}
               >
                 <strong>{guest.name}</strong>
@@ -141,6 +153,7 @@ export function NameSuggest({
                 type="button"
                 className={`name-suggest-custom${active === matches.length ? " is-active" : ""}`}
                 onMouseEnter={() => setActive(matches.length)}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={chooseCustom}
               >
                 {customActionLabel}
@@ -149,6 +162,6 @@ export function NameSuggest({
           )}
         </ul>
       )}
-    </label>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createRsvp } from "@/lib/rsvp-store";
-import { GROUP_LABELS, type GuestGroup } from "@/lib/guests";
+import { findRsvpByGuestId, upsertRsvp } from "@/lib/rsvp-store";
+import { findAdultGuest, findChildGuest, GROUP_LABELS, type GuestGroup } from "@/lib/guests";
 import type { RsvpChild, RsvpPayload } from "@/lib/rsvp-types";
 
 function cleanName(value: unknown) {
@@ -14,28 +14,21 @@ function isGuestGroup(value: unknown): value is GuestGroup {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Partial<RsvpPayload>;
-    const contactName = cleanName(body.contactName);
     const phone = cleanName(body.phone);
     const message = cleanName(body.message);
     const attending = body.attending === "no" ? "no" : body.attending === "yes" ? "yes" : null;
-    const group = isGuestGroup(body.group) ? body.group : undefined;
-    const guestId = cleanName(body.guestId) || undefined;
-    const children: RsvpChild[] = Array.isArray(body.children)
-      ? body.children
-          .map((child) => ({
-            name: cleanName(child?.name),
-            guestId: cleanName(child?.guestId) || undefined,
-            custom: Boolean(child?.custom),
-          }))
-          .filter((child) => child.name)
-      : [];
+    const guestId = cleanName(body.guestId);
+    const adult = findAdultGuest(guestId);
 
-    if (!contactName || contactName.length < 2) {
+    if (!adult) {
       return NextResponse.json(
-        { error: "Informe o nome de quem está confirmando." },
+        { error: "Clique no seu nome na lista para confirmar." },
         { status: 400 },
       );
     }
+
+    const group = isGuestGroup(body.group) ? body.group : adult.group;
+    const contactName = adult.name;
 
     if (!attending) {
       return NextResponse.json(
@@ -44,17 +37,48 @@ export async function POST(request: Request) {
       );
     }
 
+    const children: RsvpChild[] = Array.isArray(body.children)
+      ? body.children
+          .map((child) => {
+            const custom = Boolean(child?.custom);
+            const childId = cleanName(child?.guestId);
+            const listed = childId ? findChildGuest(childId) : undefined;
+            const name = listed?.name || cleanName(child?.name);
+            if (!name) return null;
+            if (!custom && !listed) return "invalid" as const;
+            return {
+              name,
+              guestId: listed?.id,
+              custom: custom && !listed,
+            };
+          })
+          .filter((child): child is RsvpChild => Boolean(child) && child !== "invalid")
+      : [];
+
+    if (
+      Array.isArray(body.children) &&
+      body.children.some((child) => {
+        const name = cleanName(child?.name);
+        return name && !child?.custom && !findChildGuest(cleanName(child?.guestId));
+      })
+    ) {
+      return NextResponse.json(
+        { error: "Clique no nome da criança na lista, ou em + adicionar criança." },
+        { status: 400 },
+      );
+    }
+
     const guests =
       attending === "yes"
         ? [
-            group ? `${contactName} · ${GROUP_LABELS[group]}` : contactName,
+            `${contactName} · ${GROUP_LABELS[group]}`,
             ...children.map((child) => `${child.name} · Criança`),
           ]
         : [];
 
-    const record = await createRsvp({
+    const { record, updated } = await upsertRsvp({
       contactName,
-      guestId,
+      guestId: adult.id,
       group,
       phone: phone || undefined,
       attending,
@@ -63,12 +87,27 @@ export async function POST(request: Request) {
       message: message || undefined,
     });
 
-    return NextResponse.json({ ok: true, id: record.id });
+    return NextResponse.json({ ok: true, id: record.id, updated });
   } catch (error) {
     console.error("RSVP error:", error);
     return NextResponse.json(
       { error: "Não foi possível salvar a confirmação. Tente novamente." },
       { status: 500 },
     );
+  }
+}
+
+export async function GET(request: Request) {
+  const guestId = new URL(request.url).searchParams.get("guestId")?.trim() || "";
+  if (!guestId || !findAdultGuest(guestId)) {
+    return NextResponse.json({ rsvp: null });
+  }
+
+  try {
+    const rsvp = await findRsvpByGuestId(guestId);
+    return NextResponse.json({ rsvp });
+  } catch (error) {
+    console.error("RSVP lookup error:", error);
+    return NextResponse.json({ rsvp: null });
   }
 }

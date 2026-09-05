@@ -19,7 +19,12 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("Admin list error:", error);
     return NextResponse.json(
-      { error: "Não foi possível carregar as confirmações." },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Não foi possível carregar as confirmações.",
+      },
       { status: 500 },
     );
   }
